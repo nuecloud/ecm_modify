@@ -299,21 +299,21 @@ onEvent('recipes', event => {
       Item.of('immersiveengineering:raw_lead').withChance(0.8),
       Item.of('immersiveengineering:dust_sulfur').withChance(0.5),
       Item.of('immersiveengineering:raw_silver').withChance(0.01)],
-      '{"text": "粗铅开采"}', 6, 800  //50%硫磺，1%银
+      '{"text": "粗铅开采"}', 6, 800  //80%铅,50%硫磺,1%银
     ).biomeWhitelist('forge:is_overworld').stress(128).id("raw_aluminum");    //铅开采
 
     event.recipes.createoreexcavation.drilling([
-          Item.of('immersiveengineering:raw_silver').withChance(0.8),
+          Item.of('immersiveengineering:raw_silver').withChance(0.8), //银 80%
           Item.of('minecraft:raw_copper').withChance(0.2),   //铜 20%
           Item.of('minecraft:raw_gold').withChance(0.07),    //金  7%
           Item.of('immersiveengineering:raw_uranium').withChance(0.02),   //铀  2%
           Item.of('immersiveengineering:raw_lead').withChance(0.01),     //铅   1%
           Item.of('create:raw_zinc').withChance(0.4)],   //锌  40%
-          '{"text": "粗铅开采"}', 5, 800
+          '{"text": "粗银开采"}', 5, 800
         ).biomeWhitelist('forge:is_overworld').stress(256).id("raw_silver");    //银开采
 
     event.recipes.createoreexcavation.drilling([
-          Item.of('immersiveengineering:raw_nickel').withChance(0.8),
+          Item.of('immersiveengineering:raw_nickel').withChance(0.8), //镍 80%
           Item.of('minecraft:raw_iron').withChance(0.2),   //铁 20%
           Item.of('immersiveengineering:dust_sulfur').withChance(0.1)],    //硫磺  10%
           '{"text": "粗镍开采"}', 6, 800
