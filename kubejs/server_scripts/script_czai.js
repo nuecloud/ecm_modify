@@ -300,7 +300,7 @@ onEvent('recipes', event => {
       Item.of('immersiveengineering:dust_sulfur').withChance(0.5),
       Item.of('immersiveengineering:raw_silver').withChance(0.01)],
       '{"text": "粗铅开采"}', 6, 800  //80%铅,50%硫磺,1%银
-    ).biomeWhitelist('forge:is_overworld').stress(128).id("raw_aluminum");    //铅开采
+    ).biomeWhitelist('forge:is_overworld').stress(128).id("raw_lead");    //铅开采
 
     event.recipes.createoreexcavation.drilling([
           Item.of('immersiveengineering:raw_silver').withChance(0.8), //银 80%
