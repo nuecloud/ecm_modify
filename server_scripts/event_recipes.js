@@ -59,12 +59,18 @@ ServerEvents.recipes(event => {
       'createdieselgenerators:wire_cutters'
     ]
   )
-  event.shapeless(Item.of('create:andesite_alloy', 8),
-    [
+  // 安山合金配方 - 支持铁锭和锌锭两种材料
+  // 配方1：铁锭版本
+  event.shapeless(Item.of('create:andesite_alloy', 8), [
       '#c:cobblestones',
       '#c:ingots/iron'
-    ]
-  )
+  ]).id('kubejs:create/andesite_alloy_iron')
+
+  // 配方2：锌锭版本
+  event.shapeless(Item.of('create:andesite_alloy', 8), [
+      '#c:cobblestones',
+      '#c:ingots/zinc'
+  ]).id('kubejs:create/andesite_alloy_zinc')
 
   //metal
   event.replaceInput(
@@ -119,10 +125,13 @@ ServerEvents.recipes(event => {
     'minecraft:iron_nugget',
     1500
   ).fluidOutput(Fluid.of('tfc:metal/cast_iron', 10))
+  .id('kubejs:tfc/heating/iron_nugget_to_cast_iron')
+
   event.recipes.tfc.heating(
     'minecraft:iron_block',
     1500
   ).fluidOutput(Fluid.of('tfc:metal/cast_iron', 900))
+  .id('kubejs:tfc/heating/iron_block_to_cast_iron')
 
 
   event.replaceInput(

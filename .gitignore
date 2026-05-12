@@ -1,0 +1,10 @@
+# IDE files
+.vscode/
+.trae/
+
+# jsconfig.json files (VS Code configuration)
+**/jsconfig.json
+
+# OS files
+Thumbs.db
+.DS_Store
