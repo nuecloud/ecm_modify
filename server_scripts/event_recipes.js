@@ -125,13 +125,13 @@ ServerEvents.recipes(event => {
     'minecraft:iron_nugget',
     1500
   ).fluidOutput(Fluid.of('tfc:metal/cast_iron', 10))
-  .id('kubejs:tfc/heating/iron_nugget_to_cast_iron')
+  .id('kubejs:tfc/heating/tfc/metal/cast_iron/minecraft/iron_nugget')
 
   event.recipes.tfc.heating(
     'minecraft:iron_block',
     1500
   ).fluidOutput(Fluid.of('tfc:metal/cast_iron', 900))
-  .id('kubejs:tfc/heating/iron_block_to_cast_iron')
+  .id('kubejs:tfc/heating/tfc/metal/cast_iron/minecraft/iron_block')
 
 
   event.replaceInput(

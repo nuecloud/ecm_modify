@@ -146,19 +146,20 @@ ServerEvents.recipes(event => {
     Object.entries(sheetsItemMap).forEach(([tag, data]) => {
         // 只处理有对应冲压板的金属
         if (data.sheetItemID && data.temperature) {
-            const safeSheetItemID = data.sheetItemID.replace(':', '_')
+            const safeSheetItemID = data.sheetItemID.replace(':', '/')
+            const safeFluidID = data.fluidID.replace(':', '/')
             
             // =====================================================================
             // 1. 冲压板熔化配方
             // =====================================================================
             // 1.1 TFC加热配方：冲压板 -> 对应金属液(100mB)
-            const tfcHeatingRecipeId = `kubejs:tfc/heating/${safeSheetItemID}`
+            const tfcHeatingRecipeId = `kubejs:tfc/heating/${safeFluidID}/${safeSheetItemID}`
             event.recipes.tfc.heating(data.sheetItemID, data.temperature)
                 .fluidOutput(Fluid.of(data.fluidID, data.fluidAmount))
                 .id(tfcHeatingRecipeId)
             
             // 1.2 Create Big Cannons熔化配方
-            const cbcMeltingRecipeId = `kubejs:createbigcannons/melting/${safeSheetItemID}`
+            const cbcMeltingRecipeId = `kubejs:createbigcannons/melting/${safeFluidID}/${safeSheetItemID}`
             const cbcHeatRequirement = data.temperature > 1080 ? 'superheated' : 'heated'
             const processingTime = Math.round(400 + (data.temperature - 1080) * (200 / 420))
             const ingredientArray = [{tag: data.tagID}]
@@ -178,7 +179,8 @@ ServerEvents.recipes(event => {
             // 2. 冲压板与锻造板双向转换
             // =====================================================================
             // 2.1 塑形配方：2个冲压板 + 助焊剂 -> TFC锻造板
-            const plateToSheetCompactingRecipeId = `kubejs:create/compacting/${safeSheetItemID}`
+            const safeTfcItemID = data.tfcItemID.replace(':', '/')
+            const plateToSheetCompactingRecipeId = `kubejs:create/compacting/${safeTfcItemID}/${safeSheetItemID}`
             const compactingRecipe = event.recipes.create.compacting(
                 data.tfcItemID,
                 [
@@ -195,7 +197,7 @@ ServerEvents.recipes(event => {
             compactingRecipe.id(plateToSheetCompactingRecipeId)
             
             // 2.2 切削配方：TFC锻造板 -> 2个冲压板（不返还助焊剂）
-            const sheetToPlateCuttingRecipeId = `kubejs:create/cutting/${safeSheetItemID}`
+            const sheetToPlateCuttingRecipeId = `kubejs:create/cutting/${safeSheetItemID}/${safeTfcItemID}`
             event.recipes.create.cutting(`2x ${data.sheetItemID}`, `${data.tfcItemID}`)
                 .id(sheetToPlateCuttingRecipeId)
         }

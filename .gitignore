@@ -9,3 +9,6 @@ config/probe-settings.json
 # OS files
 Thumbs.db
 .DS_Store
+
+# Change log
+change log/

@@ -1,5 +1,5 @@
 ServerEvents.recipes(event => {
-    let recipeCounter = 0
+    let recipeCounter = 0 // 提示配方ID重复，所以额外加入计数器来防止配方ID重复
     
     event.forEachRecipe({ type: 'tfc:heating' }, recipe => {
         const json = recipe.json
