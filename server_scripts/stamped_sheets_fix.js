@@ -189,10 +189,10 @@ ServerEvents.recipes(event => {
                 ]
             )
             
-            if (data.temperature < 1080) {
-                compactingRecipe.heated()
-            } else {
+            if (data.temperature > 1080) {
                 compactingRecipe.superheated()
+            } else {
+                compactingRecipe.heated()
             }
             compactingRecipe.id(plateToSheetCompactingRecipeId)
             
