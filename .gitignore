@@ -2,8 +2,9 @@
 .vscode/
 .trae/
 
-# jsconfig.json files (VS Code configuration)
+# IDE configuration files
 **/jsconfig.json
+config/probe-settings.json
 
 # OS files
 Thumbs.db
