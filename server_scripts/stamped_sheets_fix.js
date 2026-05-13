@@ -14,9 +14,9 @@
 //   5. 添加冲压板与TFC锻造板的双向转换配方
 // =============================================================================
 
-// 全局变量：存储扫描到的TFC板材物品ID
-const singleSheetsMetalList = []  // TFC单层锻造板（tfc:metal/sheet/*）
-const doubleSheetsMetalList = []  // TFC双层锻造板（tfc:metal/double_sheet/*）
+// =============================================================================
+// 配置数据区域 - 方便修改和调试
+// =============================================================================
 
 // 其他模组冲压板映射表
 // 用途：建立Create等模组的冲压板与TFC锻造板的对应关系
@@ -29,6 +29,18 @@ const otherModPlateMap = {
     'c:plates/brass':           {'item':'create:brass_sheet','temperature':940},
     'c:plates/zinc':            {'item':'createdeco:zinc_sheet','temperature':419}
 }
+
+// TFC及其附属模组列表
+// 这些模组的配方如果使用了c:sheets/*标签，都需要替换
+const tfcMods = ['tfc','firmalife','tfcastikorcarts','tfc_items','tfcfertigation']
+
+// =============================================================================
+// 脚本主体
+// =============================================================================
+
+// 全局变量：存储扫描到的TFC板材物品ID
+const singleSheetsMetalList = []  // TFC单层锻造板（tfc:metal/sheet/*）
+const doubleSheetsMetalList = []  // TFC双层锻造板（tfc:metal/double_sheet/*）
 
 // 主映射表：所有板材关系的核心数据
 // 键：公共标签（如 c:sheets/copper, c:plates/copper, c:double_sheets/copper）
@@ -138,10 +150,8 @@ ServerEvents.recipes(event => {
     // 部分1: 替换TFC相关模组配方中的标签引用
     // 目的：让TFC及其附属模组的配方只能使用TFC锻造板，不能使用Create冲压板
     // =========================================================================
-    // TFC及其附属模组列表
+    // 使用从配置文件导入的 tfcMods 列表
     // 这些模组的配方如果使用了c:sheets/*标签，都需要替换
-    const tfcMods = ['tfc','firmalife','tfcastikorcarts','tfc_items','tfcfertigation']
-    
     tfcMods.forEach(mod => {
         // 替换单层板标签
         // 将配方输入中的 #c:sheets/<metal> 替换为 #kubejs:tfc_single_sheets/<metal>
