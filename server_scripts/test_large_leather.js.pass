@@ -1,0 +1,26 @@
+// ============================================================================
+// 测试large_leather和medium_leather配方转换
+// ============================================================================
+
+ServerEvents.recipes(event => {
+    console.info('[测试] 开始测试皮革配方...');
+
+    // 测试: medium用直接count字段
+    event.custom({
+        type: 'createdieselgenerators:basin_fermenting',
+        ingredients: [
+            { item: 'tfc:medium_prepared_hide' },
+            {
+                type: 'fluid_stack',
+                fluid: 'tfc:tannin',
+                amount: 500
+            }
+        ],
+        processing_time: Math.max(100, Math.round(7200 / 5)),
+        results: [
+            { id: 'minecraft:leather', count: 2 }
+        ]
+    }).id('kubejs:test/medium_leather_count');
+    
+    console.info('[测试] 皮革配方测试创建完成！');
+});
