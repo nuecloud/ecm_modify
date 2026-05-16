@@ -1,0 +1,138 @@
+// ============================================================================
+// 调试脚本：测试获取 tfc:food/barley_flour 的最大堆叠数量
+// ============================================================================
+// 以下注释内容将辅助正式脚本修改过程，不允许删除
+// 重要发现：
+// 1. maxMultiplier 初始值问题：
+//    - 错误：let maxMultiplier = 1.0;
+//    - 正确：let maxMultiplier = Infinity;
+//    - 原因：使用 Math.min() 取最小值时，初始值必须大于所有可能的乘数
+//    - 示例：若乘数为 64, 2, 2，初始值为 1 会导致结果始终为 1
+//
+// 2. 获取堆叠限制的方法：
+//    - Item.of().getMaxStackSize() 实际上能返回正确的值（包括 TFC 的 Weight 组件影响）
+//    - 测试结果：barley_flour 返回 32，符合预期
+//
+// 3. 新发现 (2026-05-16)：
+//    - event.recipes.createdieselgenerators.basinFermenting() 路线失败
+//    - 直接使用 event.custom() 配合 { type: 'tfc:and', children: [...] } 结构成功
+//    - 关键：用数组重复代替数量倍增
+//      例如 flooredMultiplier = 2 时，把 { type: 'tfc:and', children: [...] } 重复2次
+// ============================================================================
+
+ServerEvents.recipes(event => {
+    console.info('[DEBUG] ============================================');
+    console.info('[DEBUG] 测试配方1: TFC酿酒 (barley_flour + water -> beer)');
+    console.info('[DEBUG] ============================================');
+
+    let testItemId1 = 'tfc:food/barley_flour';
+    let inputFluidId1 = 'minecraft:water';
+    let outputFluidId1 = 'tfc:beer';
+    let inputFluidAmount1 = 500;
+    let outputFluidAmount1 = 500;
+    let inputItemCount1 = 1;
+
+    let actualMaxStack1 = Item.of(testItemId1, 1).getMaxStackSize();
+    console.info(`[DEBUG] ${testItemId1} 堆叠限制 = ${actualMaxStack1}`);
+
+    let FLUID_SLOT_LIMIT = 1000;
+    let maxMultiplier1 = Infinity;
+    let itemMultiplier1 = actualMaxStack1 / inputItemCount1;
+    let fluidMultiplier1 = FLUID_SLOT_LIMIT / inputFluidAmount1;
+    let outputFluidMultiplier1 = FLUID_SLOT_LIMIT / outputFluidAmount1;
+    maxMultiplier1 = Math.min(maxMultiplier1, itemMultiplier1, fluidMultiplier1, outputFluidMultiplier1);
+
+    let flooredMultiplier1 = Math.floor(maxMultiplier1);
+    console.info(`[DEBUG] maxMultiplier=${maxMultiplier1.toFixed(2)}, flooredMultiplier=${flooredMultiplier1}`);
+
+    if (flooredMultiplier1 >= 1) {
+        let ingredients1 = [];
+        let results1 = [];
+
+        // 用数组重复实现物品倍增
+        for (let i = 0; i < flooredMultiplier1; i++) {
+            ingredients1.push({
+                type: 'tfc:and',
+                children: [
+                    { item: testItemId1 },
+                    { type: 'tfc:not_rotten' }
+                ]
+            });
+        }
+
+        // 流体倍增用 amount
+        ingredients1.push({
+            type: 'fluid_stack',
+            fluid: inputFluidId1,
+            amount: inputFluidAmount1 * flooredMultiplier1
+        });
+
+        // 输出流体
+        results1.push({
+            id: outputFluidId1,
+            amount: outputFluidAmount1 * flooredMultiplier1
+        });
+
+        console.info(`[DEBUG] 创建配方1: ${flooredMultiplier1}x ${testItemId1} + ${inputFluidAmount1 * flooredMultiplier1}mB water -> ${outputFluidAmount1 * flooredMultiplier1}mB beer`);
+
+        event.custom({
+            type: 'createdieselgenerators:basin_fermenting',
+            ingredients: ingredients1,
+            processing_time: 400,
+            results: results1
+        }).id(`kubejs:test_fermenting/barley_flour_x${flooredMultiplier1}`);
+    }
+
+    console.info('[DEBUG] ============================================');
+    console.info('[DEBUG] 测试配方2: black_wool (white_wool + black_dye -> black_wool)');
+    console.info('[DEBUG] ============================================');
+
+    let testItemId2 = 'minecraft:white_wool';
+    let inputFluidId2 = 'tfc:black_dye';
+    let outputItemId2 = 'minecraft:black_wool';
+    let inputFluidAmount2 = 25;
+    let inputItemCount2 = 1;
+
+    let actualMaxStack2 = Item.of(testItemId2, 1).getMaxStackSize();
+    console.info(`[DEBUG] ${testItemId2} 堆叠限制 = ${actualMaxStack2}`);
+
+    let maxMultiplier2 = Infinity;
+    let itemMultiplier2 = actualMaxStack2 / inputItemCount2;
+    let fluidMultiplier2 = FLUID_SLOT_LIMIT / inputFluidAmount2;
+    maxMultiplier2 = Math.min(maxMultiplier2, itemMultiplier2, fluidMultiplier2);
+
+    let flooredMultiplier2 = Math.floor(maxMultiplier2);
+    console.info(`[DEBUG] maxMultiplier=${maxMultiplier2.toFixed(2)}, flooredMultiplier=${flooredMultiplier2}`);
+
+    if (flooredMultiplier2 >= 1) {
+        let ingredients2 = [];
+        let results2 = [];
+
+        // 用数组重复实现物品倍增
+        for (let i = 0; i < flooredMultiplier2; i++) {
+            ingredients2.push({ item: testItemId2 });
+        }
+
+        // 流体倍增用 amount
+        ingredients2.push({
+            type: 'fluid_stack',
+            fluid: inputFluidId2,
+            amount: inputFluidAmount2 * flooredMultiplier2
+        });
+
+        // 输出物品
+        results2.push({
+            id: outputItemId2,
+            count: flooredMultiplier2
+        });
+
+        console.info(`[DEBUG] 创建配方2: ${flooredMultiplier2}x ${testItemId2} + ${inputFluidAmount2 * flooredMultiplier2}mB ${inputFluidId2} -> ${flooredMultiplier2}x ${outputItemId2}`);
+
+        event.custom({
+            type: 'createdieselgenerators:basin_fermenting',
+            ingredients: ingredients2,
+            processing_time: 100,
+            results: results2
+        }).id(`kubejs:test_fermenting/wool_x${flooredMultiplier2}`);
+    }
+});
