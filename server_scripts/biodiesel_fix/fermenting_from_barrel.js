@@ -447,6 +447,11 @@ function convertSingleRecipe(data, recipe) {
         return;
     }
 
+    if (!recipeData.outputItem && !recipeData.outputFluid) {
+        data.stats.skipped++;
+        return;
+    }
+
     recipeData.basinMaxMultiplier = calculateBasinMaxMultiplier(recipeData, data);
     recipeData.basinMultiplier = Math.floor(recipeData.basinMaxMultiplier);
 
