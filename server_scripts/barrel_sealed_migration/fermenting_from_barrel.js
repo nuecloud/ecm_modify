@@ -431,6 +431,11 @@ function convertSingleRecipe(data, recipe) {
         return;
     }
 
+    if (!recipeData.outputItem && !recipeData.outputFluid) {
+        data.stats.skipped++;
+        return;
+    }
+
     if (recipeData.recipeId === 'tfc:barrel/mortar') {
         data.stats.skipped++;
         return;
