@@ -1,47 +1,30 @@
 // ============================================================================
-// 批量从TFC密封大桶配方创建Create发酵配方（策略模式重构版）
-// ============================================================================
-// 
-// 策略模式实现：
-// 1. 分析配方属性，添加策略标记（strategy type）
-// 2. 注册不同策略的处理函数
-// 3. 执行时根据标记自动选择并执行对应策略
+// 批量从TFC密封大桶配方创建Create发酵配方
+// 线性流水线：解析 → 过滤 → 计算倍率 → 生成Basin/Bulk配方
 // ============================================================================
 
-// ============================================================================
-// 策略注册表
-// 每个策略包含：condition(recipeData) -> bool  用于判断是否适用
-//               handler(data, recipe, recipeData) -> bool  返回true表示已处理，false表示继续
-// 策略按注册顺序执行，前面的策略可以为后面的策略添加标记数据（如bulkParams）
-// ============================================================================
-var recipeStrategies = {};
+var BULK_FLUID_LIMIT = 72000;
 
-// 注册策略
-function registerStrategy(name, condition, handler) {
-    recipeStrategies[name] = {
-        condition: condition,
-        handler: handler
-    };
-}
-
-// ============================================================================
-// 数据结构定义
-// ============================================================================
-
-// 配方转换器数据（贯穿整个转换流程的上下文对象）
+/**
+ * 创建贯穿转换流程的上下文对象
+ * @param {Internal.RecipeEventJS} event - 配方事件
+ * @returns {Object} 包含事件引用、统计计数器和常量
+ */
 function createConverterData(event) {
     return {
         event: event,
-        stats: {
-            basin: 0,   // Basin Fermenting 配方生成计数
-            bulk: 0,    // Bulk Fermenting 配方生成计数
-            skipped: 0  // 跳过的配方计数（如带modifiers的配方）
-        },
-        FLUID_SLOT_LIMIT: 1000  // Create流体槽上限 (mB)
+        stats: { basin: 0, bulk: 0, skipped: 0 },
+        FLUID_SLOT_LIMIT: 1000
     };
 }
 
-// 配方数据对象（每个TFC配方对应一个实例，策略按需修改其字段）
+/**
+ * 从TFC配方JSON中提取关键字段
+ * @param {Internal.JsonObject} json - 配方的JSON对象
+ * @param {Object} data - 转换上下文
+ * @param {Internal.Recipe} recipe - TFC配方
+ * @returns {Object} 标准化后的配方数据对象
+ */
 function createRecipeData(json, data, recipe) {
     var result = {
         inputItem: null,
@@ -49,39 +32,34 @@ function createRecipeData(json, data, recipe) {
         outputItem: null,
         outputFluid: null,
         sealTime: 0,
-        maxMultiplier: Infinity,      // 理论最大倍增倍数（受堆叠/流体槽限制）
-        flooredMultiplier: 0,         // 向下取整后的倍数（用于Basin配方）
+        basinMaxMultiplier: Infinity,
+        basinMultiplier: 0,
         recipeId: recipe ? recipe.getId() : null,
-        // bulkParams 由各策略逐步修改，最终用于 Bulk Fermenting 配方生成
-        bulkParams: {
-            itemMultiplier: 0,        // 物品倍增倍率
-            fluidMultiplier: 0,       // 流体倍增倍率（可与物品倍率不同）
-            fluidAddition: 0          // 额外添加/返还的流体量 (mB)
-        }
+        base: 0,
+        itemMultiplier: 0,
+        fluidMultiplier: 0,
+        fluidAddition: 0
     };
-    
-    // 提取数据
+
     result.inputItem = parseJsonField(json, 'input_item');
     result.inputFluid = parseJsonField(json, 'input_fluid');
     result.outputItem = parseJsonField(json, 'output_item');
     result.outputFluid = parseJsonField(json, 'output_fluid');
-    // 支持 seal_time 和 duration 两种字段名
     if (json.has('seal_time')) {
         result.sealTime = json.get('seal_time').getAsInt();
     } else if (json.has('duration')) {
         result.sealTime = json.get('duration').getAsInt();
-    } else {
-        result.sealTime = 0;
     }
-    
+
     return result;
 }
 
-// ============================================================================
-// 工具函数
-// ============================================================================
-
-// 解析 JSON 字段
+/**
+ * 安全解析JSON字段
+ * @param {Internal.JsonObject} json - JSON对象
+ * @param {string} fieldName - 字段名
+ * @returns {Object|null} 解析后的对象，失败返回null
+ */
 function parseJsonField(json, fieldName) {
     if (json.has(fieldName)) {
         try {
@@ -93,12 +71,15 @@ function parseJsonField(json, fieldName) {
     return null;
 }
 
-// 获取物品最大堆叠数
-// 当输入是tag时，取该tag下所有物品中最小的maxStackSize（保守估计，防止溢出）
+/**
+ * 获取物品最大堆叠数（tag输入时取该tag下所有物品的最小值）
+ * @param {Object} itemData - {item/tag, count}
+ * @returns {number|null} 最大堆叠数
+ */
 function getMaxStackSize(itemData) {
     var itemId = itemData.item || itemData.tag;
     if (!itemId) return null;
-    
+
     try {
         if (itemData.tag) {
             var tagItems = Ingredient.of('#' + itemData.tag).items;
@@ -120,11 +101,16 @@ function getMaxStackSize(itemData) {
     return null;
 }
 
-// 计算最大倍增倍数（取输入物品/输出物品/输入流体/输出流体四项限制的最小值）
-// 输入物品受堆叠上限约束，输出物品同理；流体受 FLUID_SLOT_LIMIT (1000mB) 约束
-function calculateMaxMultiplier(recipeData, data) {
+/**
+ * 计算Basin配方的理论最大倍率
+ * 受输入/输出物品堆叠上限和1000mB流体槽限制
+ * @param {Object} recipeData - 配方数据
+ * @param {Object} data - 转换上下文（提供FLUID_SLOT_LIMIT）
+ * @returns {number} 理论最大倍率
+ */
+function calculateBasinMaxMultiplier(recipeData, data) {
     var maxMultiplier = Infinity;
-    
+
     if (recipeData.inputItem) {
         var itemId = recipeData.inputItem.item || recipeData.inputItem.tag;
         if (itemId) {
@@ -135,7 +121,7 @@ function calculateMaxMultiplier(recipeData, data) {
             }
         }
     }
-    
+
     if (recipeData.outputItem) {
         var outputId = recipeData.outputItem.id || recipeData.outputItem.item;
         if (outputId) {
@@ -150,29 +136,125 @@ function calculateMaxMultiplier(recipeData, data) {
             }
         }
     }
-    
+
     if (recipeData.inputFluid && recipeData.inputFluid.amount > 0) {
         maxMultiplier = Math.min(maxMultiplier, data.FLUID_SLOT_LIMIT / recipeData.inputFluid.amount);
     }
-    
+
     if (recipeData.outputFluid && recipeData.outputFluid.amount > 0) {
         maxMultiplier = Math.min(maxMultiplier, data.FLUID_SLOT_LIMIT / recipeData.outputFluid.amount);
     }
-    
+
     return maxMultiplier;
 }
 
-// 构建 Basin Fermenting ingredients（物品和流体使用相同倍率）
-function buildIngredients(inputItem, inputFluid, multiplier) {
+/**
+ * 计算Bulk配方的基础倍率
+ * 公式: floor(9 / 物品数)，同时为流体增益×2预留72000上限空间
+ * @param {Object} recipeData - 配方数据
+ * @returns {number} 基础倍率（为0时无法生成Bulk配方）
+ */
+function calculateBulkBase(recipeData) {
+    var originalItemCount = recipeData.inputItem ? 1 : 0;
+    if (originalItemCount === 0) return 0;
+
+    var base = Math.floor(9 / originalItemCount);
+
+    if (recipeData.inputFluid && recipeData.inputFluid.amount > 0) {
+        var inputAmt = recipeData.inputFluid.amount;
+        if (recipeData.outputFluid && recipeData.outputFluid.amount > 0) {
+            base = Math.min(base, Math.floor(BULK_FLUID_LIMIT / (2 * inputAmt)));
+            base = Math.min(base, Math.floor(BULK_FLUID_LIMIT / (2 * recipeData.outputFluid.amount)));
+        } else {
+            base = Math.min(base, Math.floor(BULK_FLUID_LIMIT / inputAmt));
+        }
+    }
+
+    return base;
+}
+
+/**
+ * 判断是否为mortar配方（输出过多，需限制倍率为6）
+ * @param {Object} recipeData - 配方数据
+ * @returns {boolean}
+ */
+function isMortar(recipeData) {
+    return recipeData.recipeId === 'tfc:barrel/mortar';
+}
+
+/**
+ * 判断是否为陈酿酒配方（物品×1，流体×3.6的特殊倍率）
+ * @param {Object} recipeData - 配方数据
+ * @returns {boolean}
+ */
+function isAgedAlcohol(recipeData) {
+    var fluidId = null;
+    if (recipeData.outputFluid) {
+        fluidId = recipeData.outputFluid.id || recipeData.outputFluid.fluid;
+    }
+    return fluidId && fluidId.indexOf('tfcagedalcohol:aged') === 0;
+}
+
+/**
+ * 解析Bulk配方的倍率参数
+ * 特殊配方（mortar/陈酿酒）整体覆盖所有倍率并跳过通用策略；
+ * 通用配方依次应用流体增益（×2）和满池返还（向上取整到1000的倍数）
+ * @param {Object} recipeData - 配方数据（会被修改）
+ */
+function resolveBulkParams(recipeData) {
+    var base = recipeData.base;
+    var hasInputFluid = recipeData.inputFluid && recipeData.inputFluid.amount > 0;
+    var hasOutputFluid = recipeData.outputFluid && recipeData.outputFluid.amount > 0;
+
+    if (isMortar(recipeData)) {
+        recipeData.itemMultiplier = 6;
+        recipeData.fluidMultiplier = 6;
+        recipeData.fluidAddition = 0;
+        return;
+    }
+
+    if (isAgedAlcohol(recipeData)) {
+        recipeData.itemMultiplier = 1;
+        recipeData.fluidMultiplier = 3.6;
+        recipeData.fluidAddition = 0;
+        return;
+    }
+
+    recipeData.itemMultiplier = base;
+    recipeData.fluidMultiplier = base;
+    recipeData.fluidAddition = 0;
+
+    if (hasInputFluid && hasOutputFluid) {
+        recipeData.fluidMultiplier = base * 2;
+    }
+
+    if (hasInputFluid && !hasOutputFluid) {
+        var totalInput = recipeData.inputFluid.amount * recipeData.fluidMultiplier;
+        var remainder = totalInput % 1000;
+        if (remainder > 0) {
+            recipeData.fluidAddition = 1000 - remainder;
+            var fluidId = recipeData.inputFluid.fluid || recipeData.inputFluid.tag;
+            if (fluidId) {
+                recipeData.outputFluid = { id: fluidId, amount: 0 };
+            }
+        }
+    }
+}
+
+/**
+ * 构建Basin配方的输入列表（物品和流体使用同一倍率）
+ * @param {Object} inputItem - 输入物品
+ * @param {Object} inputFluid - 输入流体
+ * @param {number} multiplier - 倍率
+ * @returns {Array} ingredients数组
+ */
+function buildBasinIngredients(inputItem, inputFluid, multiplier) {
     var ingredients = [];
-    
+
     if (inputItem) {
         if (inputItem.type === 'tfc:and' && inputItem.children) {
             for (var i = 0; i < multiplier; i++) {
-                ingredients.push({
-                    type: 'tfc:and',
-                    children: inputItem.children
-                });
+                ingredients.push({ type: 'tfc:and', children: inputItem.children });
             }
         } else {
             for (var i = 0; i < multiplier; i++) {
@@ -184,72 +266,64 @@ function buildIngredients(inputItem, inputFluid, multiplier) {
             }
         }
     }
-    
+
     if (inputFluid) {
         var amount = inputFluid.amount * multiplier;
         if (inputFluid.fluid && amount > 0) {
-            ingredients.push({
-                type: 'fluid_stack',
-                fluid: inputFluid.fluid,
-                amount: amount
-            });
+            ingredients.push({ type: 'fluid_stack', fluid: inputFluid.fluid, amount: amount });
         } else if (inputFluid.tag && amount > 0) {
-            ingredients.push({
-                type: 'fluid_tag',
-                fluid_tag: inputFluid.tag,
-                amount: amount
-            });
+            ingredients.push({ type: 'fluid_tag', fluid_tag: inputFluid.tag, amount: amount });
         }
     }
-    
+
     return ingredients;
 }
 
-// 构建 Basin Fermenting results（物品和流体使用相同倍率）
-function buildResults(outputItem, outputFluid, multiplier) {
+/**
+ * 构建Basin配方的输出列表（物品和流体使用同一倍率）
+ * @param {Object} outputItem - 输出物品
+ * @param {Object} outputFluid - 输出流体
+ * @param {number} multiplier - 倍率
+ * @returns {Array} results数组
+ */
+function buildBasinResults(outputItem, outputFluid, multiplier) {
     var results = [];
-    
+
     if (outputItem) {
         var itemId = outputItem.id || outputItem.item;
         if (itemId) {
             var singleResult = { id: itemId };
             var outputCount = (outputItem.count || 1) * multiplier;
-            if (outputCount > 1) {
-                singleResult.count = outputCount;
-            }
-            if (outputItem.chance) {
-                singleResult.chance = outputItem.chance;
-            }
+            if (outputCount > 1) singleResult.count = outputCount;
+            if (outputItem.chance) singleResult.chance = outputItem.chance;
             results.push(singleResult);
         }
     }
-    
+
     if (outputFluid) {
         var fluidId = outputFluid.id || outputFluid.fluid;
         if (fluidId && outputFluid.amount > 0) {
-            results.push({
-                id: fluidId,
-                amount: outputFluid.amount * multiplier
-            });
+            results.push({ id: fluidId, amount: outputFluid.amount * multiplier });
         }
     }
-    
+
     return results;
 }
 
-// 构建 Bulk Fermenting ingredients（支持独立的物品和流体倍率，以及流体返还）
-// fluidAddition 用于处理满池减益策略中返还剩余流体的场景
-function buildBulkIngredients(inputItem, inputFluid, bulkParams) {
+/**
+ * 构建Bulk配方的输入列表（物品/流体独立倍率，含满池返还的fluidAddition）
+ * @param {Object} recipeData - 配方数据（含itemMultiplier/fluidMultiplier/fluidAddition）
+ * @returns {Array} ingredients数组
+ */
+function buildBulkIngredients(recipeData) {
     var ingredients = [];
-    
+    var inputItem = recipeData.inputItem;
+    var inputFluid = recipeData.inputFluid;
+
     if (inputItem) {
-        var itemMult = bulkParams.itemMultiplier;
-        for (var i = 0; i < itemMult; i++) {
+        for (var i = 0; i < recipeData.itemMultiplier; i++) {
             if (inputItem.type === 'tfc:and' && inputItem.children) {
-                ingredients.push({
-                    type: 'tfc:and',
-                    children: inputItem.children
-                });
+                ingredients.push({ type: 'tfc:and', children: inputItem.children });
             } else if (inputItem.item) {
                 ingredients.push({ item: inputItem.item });
             } else if (inputItem.tag) {
@@ -257,320 +331,167 @@ function buildBulkIngredients(inputItem, inputFluid, bulkParams) {
             }
         }
     }
-    
+
     if (inputFluid) {
-        var fluidAmount = inputFluid.amount * bulkParams.fluidMultiplier + bulkParams.fluidAddition;
+        var fluidAmount = inputFluid.amount * recipeData.fluidMultiplier + recipeData.fluidAddition;
         if (fluidAmount > 0) {
             if (inputFluid.fluid) {
-                ingredients.push({
-                    type: 'fluid_stack',
-                    fluid: inputFluid.fluid,
-                    amount: fluidAmount
-                });
+                ingredients.push({ type: 'fluid_stack', fluid: inputFluid.fluid, amount: fluidAmount });
             } else if (inputFluid.tag) {
-                ingredients.push({
-                    type: 'fluid_tag',
-                    fluid_tag: inputFluid.tag,
-                    amount: fluidAmount
-                });
+                ingredients.push({ type: 'fluid_tag', fluid_tag: inputFluid.tag, amount: fluidAmount });
             }
         }
     }
-    
+
     return ingredients;
 }
 
-// 构建 Bulk Fermenting results（支持独立的物品和流体倍率，以及流体返还）
-// outputFluid.amount >= 0 允许零量输出流体（用于满池减益策略的流体返还标记）
-function buildBulkResults(outputItem, outputFluid, bulkParams) {
+/**
+ * 构建Bulk配方的输出列表（物品/流体独立倍率，含满池返还的fluidAddition）
+ * @param {Object} recipeData - 配方数据
+ * @returns {Array} results数组
+ */
+function buildBulkResults(recipeData) {
     var results = [];
-    
+    var outputItem = recipeData.outputItem;
+    var outputFluid = recipeData.outputFluid;
+
     if (outputItem) {
         var itemId = outputItem.id || outputItem.item;
         if (itemId) {
             var singleResult = { id: itemId };
-            var outputCount = (outputItem.count || 1) * bulkParams.itemMultiplier;
-            if (outputCount > 1) {
-                singleResult.count = outputCount;
-            }
-            if (outputItem.chance) {
-                singleResult.chance = outputItem.chance;
-            }
+            var outputCount = (outputItem.count || 1) * recipeData.itemMultiplier;
+            if (outputCount > 1) singleResult.count = outputCount;
+            if (outputItem.chance) singleResult.chance = outputItem.chance;
             results.push(singleResult);
         }
     }
-    
+
     if (outputFluid && outputFluid.amount >= 0) {
         var fluidId = outputFluid.id || outputFluid.fluid;
         if (fluidId) {
-            var fluidAmount = outputFluid.amount * bulkParams.fluidMultiplier + bulkParams.fluidAddition;
+            var fluidAmount = outputFluid.amount * recipeData.fluidMultiplier + recipeData.fluidAddition;
             if (fluidAmount > 0) {
-                results.push({
-                    id: fluidId,
-                    amount: fluidAmount
-                });
+                results.push({ id: fluidId, amount: fluidAmount });
             }
         }
     }
-    
+
     return results;
 }
 
-// ============================================================================
-// 策略：配方分析（添加标记）
-// ============================================================================
+/**
+ * 尝试生成Basin Fermenting配方（处理时间=sealTime/5，至少100tick）
+ * @param {Object} data - 转换上下文
+ * @param {Internal.Recipe} recipe - 原TFC配方（用于生成ID）
+ * @param {Object} recipeData - 配方数据
+ */
+function tryBasinFermenting(data, recipe, recipeData) {
+    if (recipeData.basinMultiplier < 1) return;
 
-// 策略1：计算 bulk 倍率（默认物品和流体同步倍率）
-// 逻辑：原配方输入物品数决定每"组"大小，floor(9 / 原物品数) = 每批最多处理几组
-registerStrategy('bulk_multiplier_check', function(recipeData) {
-    // 计算原配方输入物品数
-    var originalItemCount = 0;
-    if (recipeData.inputItem) {
-        originalItemCount = 1;
-    }
-    
-    // 计算 bulk 倍率：floor(9 / 原物品数)
-    var multiplier = Math.floor(9 / originalItemCount);
-    
-    // 将倍率参数存储到 recipeData 中（默认同步倍率）
-    recipeData.bulkParams.itemMultiplier = multiplier;
-    recipeData.bulkParams.fluidMultiplier = multiplier;
-    recipeData.bulkParams.fluidAddition = 0;
-    
-    // 如果倍率 > 0，则 bulk_fermenting 可用
-    return multiplier > 0;
-}, function(data, recipe, recipeData) {
-    // 这个策略只是添加标记，不做实际处理
-    return false; // 继续后续策略
-});
+    var ingredients = buildBasinIngredients(recipeData.inputItem, recipeData.inputFluid, recipeData.basinMultiplier);
+    var results = buildBasinResults(recipeData.outputItem, recipeData.outputFluid, recipeData.basinMultiplier);
 
-// 策略2：流体增益（有流体输出的配方，流体倍率翻倍）
-// 原因：输入和输出的流体独立占用流体槽，翻倍可以更好地利用槽位
-registerStrategy('bulk_fluid_bonus', function(recipeData) {
-    // 条件：有流体输出且输入流体量 > 0
-    if (recipeData.outputFluid && recipeData.outputFluid.amount > 0 && 
-        recipeData.inputFluid && recipeData.inputFluid.amount > 0) {
-        // 流体倍率 = 物品倍率 * 2（确保输入与输出流体同步倍增）
-        var itemMult = recipeData.bulkParams.itemMultiplier || 1;
-        recipeData.bulkParams.fluidMultiplier = itemMult * 2;
-        recipeData.bulkParams.fluidAddition = 0;
-        return true;
-    }
-    return false;
-}, function(data, recipe, recipeData) {
-    // 标记已添加，不做实际处理
-    return false;
-});
+    if (results.length === 0 || ingredients.length === 0) return;
 
-// 策略2.1：满池减益（有输入流体但无输出流体，需返还剩余流体）
-// 当输入流体 < 1000mB 且配方无输出流体时，bulk 后会产生"空余"流体槽
-// 此策略将剩余的流体返还到输出中（创造一个虚拟输出流体标记）
-registerStrategy('bulk_fluid_return', function(recipeData) {
-    // 条件：有输入流体但无输出流体，且输入流体量 < 1000
-    if (recipeData.inputFluid && recipeData.inputFluid.amount > 0 && 
-        (!recipeData.outputFluid || recipeData.outputFluid.amount <= 0) &&
-        recipeData.inputFluid.amount < 1000) {
-        // 计算返还量：1000 - (输入流体量 * itemMultiplier)
-        var inputAmount = recipeData.inputFluid.amount;
-        var itemMult = recipeData.bulkParams.itemMultiplier || 1;
-        var consumed = inputAmount * itemMult;
-        var returnAmount = 1000 - consumed;
-        
-        // 设置参数：流体倍率与物品倍率相同，添加返还量
-        recipeData.bulkParams.fluidMultiplier = itemMult;
-        recipeData.bulkParams.fluidAddition = returnAmount;
-        
-        // 创建虚拟输出流体（用于buildBulkResults处理返还）
-        var fluidId = recipeData.inputFluid.fluid || recipeData.inputFluid.tag;
-        if (fluidId) {
-            recipeData.outputFluid = { id: fluidId, amount: 0 };
-        }
-        
-        return true;
-    }
-    return false;
-}, function(data, recipe, recipeData) {
-    // 标记已添加，不做实际处理
-    return false;
-});
-
-// 策略2.2：特殊配方处理（如 mortar 输出过多，限制倍率为6防止溢出）
-registerStrategy('bulk_special_recipe', function(recipeData) {
-    // 直接判断配方ID
-    if (recipeData.recipeId === 'tfc:barrel/mortar') {
-        recipeData.bulkParams.itemMultiplier = 6;  // 特殊物品倍率
-        recipeData.bulkParams.fluidMultiplier = 6; // 特殊流体倍率
-        recipeData.bulkParams.fluidAddition = 0;
-        return true;
-    }
-    return false;
-}, function(data, recipe, recipeData) {
-    // 标记已添加，不做实际处理
-    return false;
-});
-
-// 策略2.3：陈酿酒配方（输出流体以 tfcagedalcohol:aged 开头）
-// 陈酿酒需要特殊倍率：物品不倍增，仅流体按 3.6 倍处理
-registerStrategy('bulk_aged_alcohol', function(recipeData) {
-    // 检查输出流体ID是否以 tfcagedalcohol:aged 开头
-    var fluidId = null;
-    if (recipeData.outputFluid) {
-        fluidId = recipeData.outputFluid.id || recipeData.outputFluid.fluid;
-    }
-    if (fluidId && fluidId.indexOf('tfcagedalcohol:aged') === 0) {
-        recipeData.bulkParams.itemMultiplier = 1;     // 物品倍率1
-        recipeData.bulkParams.fluidMultiplier = 3.6; // 陈酿酒流体倍率
-        recipeData.bulkParams.fluidAddition = 0;
-        return true;
-    }
-    return false;
-}, function(data, recipe, recipeData) {
-    // 标记已添加，不做实际处理
-    return false;
-});
-
-// 策略3：跳过带 modifiers 的配方（如带有NBT标签的输出物，无法在Create配方中表达）
-registerStrategy('skip_modifiers', function(recipeData) {
-    return recipeData.outputItem && recipeData.outputItem.modifiers;
-}, function(data, recipe, recipeData) {
-    data.stats.skipped++;
-    return true; // 已处理，不再执行后续策略
-});
-
-// 策略4：Basin Fermenting（处理倍率 >= 1 的配方，物品流体同步倍率）
-// 处理时间 = sealTime / 5（最少100tick），用于单槽批量发酵
-registerStrategy('basin_fermenting', function(recipeData) {
-    return recipeData.flooredMultiplier >= 1;
-}, function(data, recipe, recipeData) {
-    var multiplier = recipeData.flooredMultiplier;
-    var ingredients = buildIngredients(recipeData.inputItem, recipeData.inputFluid, multiplier);
-    var results = buildResults(recipeData.outputItem, recipeData.outputFluid, multiplier);
-    
-    if (results.length === 0 || ingredients.length === 0) {
-        return false;
-    }
-    
     var processingTime = Math.max(100, Math.round(recipeData.sealTime / 5));
-    var multStr = multiplier.toString();
-    
+
     data.event.custom({
         type: 'createdieselgenerators:basin_fermenting',
         ingredients: ingredients,
         processing_time: processingTime,
         results: results
-    }).id('kubejs:tfc_barrel_sealed/basin/' + multStr + '_' + recipe.getId().replace(':', '_'));
-    
-    data.stats.basin++;
-    return true;
-});
+    }).id('kubejs:tfc_barrel_sealed/basin/' + recipeData.basinMultiplier + '_' + recipe.getId().replace(':', '_'));
 
-// 策略5：Bulk Fermenting（使用 bulkParams，物品和流体可独立倍率）
-// 处理时间 = sealTime / 4（最少100tick），九个槽位同时发酵
-registerStrategy('bulk_fermenting', function(recipeData) {
-    // 检查是否有有效的 bulkParams（itemMultiplier > 0）
-    return recipeData.bulkParams && recipeData.bulkParams.itemMultiplier > 0;
-}, function(data, recipe, recipeData) {
-    // 获取 bulk 参数
-    var bulkParams = recipeData.bulkParams;
-    
-    // 使用独立的构建函数处理 bulk 配方
-    var ingredients = buildBulkIngredients(recipeData.inputItem, recipeData.inputFluid, bulkParams);
-    var results = buildBulkResults(recipeData.outputItem, recipeData.outputFluid, bulkParams);
-    
-    if (results.length === 0 || ingredients.length === 0) {
-        return false;
-    }
-    
+    data.stats.basin++;
+}
+
+/**
+ * 尝试生成Bulk Fermenting配方（处理时间=sealTime/4，至少100tick）
+ * @param {Object} data - 转换上下文
+ * @param {Internal.Recipe} recipe - 原TFC配方（用于生成ID）
+ * @param {Object} recipeData - 配方数据
+ */
+function tryBulkFermenting(data, recipe, recipeData) {
+    if (recipeData.itemMultiplier <= 0) return;
+
+    var ingredients = buildBulkIngredients(recipeData);
+    var results = buildBulkResults(recipeData);
+
+    if (results.length === 0 || ingredients.length === 0) return;
+
     var processingTime = Math.max(100, Math.round(recipeData.sealTime / 4));
-    var multStr = bulkParams.itemMultiplier.toString() + '_' + bulkParams.fluidMultiplier.toString();
-    
+    var multStr = recipeData.itemMultiplier + '_' + recipeData.fluidMultiplier;
+
     data.event.custom({
         type: 'createdieselgenerators:bulk_fermenting',
         ingredients: ingredients,
         processing_time: processingTime,
         results: results
     }).id('kubejs:tfc_barrel_sealed/bulk/' + multStr + '_' + recipe.getId().replace(':', '_'));
-    
+
     data.stats.bulk++;
-    return true;
-});
-
-// ============================================================================
-// 主流程
-// ============================================================================
-
-// 分析配方：计算倍率，然后遍历所有策略的 condition，将适用的策略名存入 recipeData.strategies
-// 注意：condition 可能有副作用（如修改 bulkParams），这是设计如此，用于策略间的数据传递
-function analyzeRecipe(recipeData, data) {
-    // 计算倍数
-    recipeData.maxMultiplier = calculateMaxMultiplier(recipeData, data);
-    recipeData.flooredMultiplier = Math.floor(recipeData.maxMultiplier);
-    
-    // 根据条件收集适用的策略
-    recipeData.strategies = [];
-    for (var strategyName in recipeStrategies) {
-        if (recipeStrategies.hasOwnProperty(strategyName)) {
-            var strategy = recipeStrategies[strategyName];
-            if (strategy.condition(recipeData)) {
-                recipeData.strategies.push(strategyName);
-            }
-        }
-    }
 }
 
-// 按 analyzeRecipe 收集的策略顺序执行所有 handler
-// handler 返回 true 表示已处理（如 skip 策略），但目前不影响后续策略继续执行
-function executeStrategies(data, recipe, recipeData) {
-    for (var i = 0; i < recipeData.strategies.length; i++) {
-        var strategyName = recipeData.strategies[i];
-        var strategy = recipeStrategies[strategyName];
-        if (strategy) {
-            var result = strategy.handler(data, recipe, recipeData);
-            if (result === true) {
-                // 策略已处理，可以选择继续或中断
-                // 这里可以根据需要决定是否继续
-            }
-        }
-    }
-}
-
-// 转换单个配方：解析 → 快速过滤 → 分析策略 → 执行策略
+/**
+ * 转换单个TFC密封大桶配方：解析 → 过滤modifiers → 计算倍率 → 生成Basin和Bulk配方
+ * @param {Object} data - 转换上下文
+ * @param {Internal.Recipe} recipe - TFC密封大桶配方
+ */
 function convertSingleRecipe(data, recipe) {
     var json = recipe.json;
-    
     var recipeData = createRecipeData(json, data, recipe);
-    
-    // 快速过滤：带modifiers的配方无法在Create中表达，提前跳过（与策略3重复但更高效）
+
     if (recipeData.outputItem && recipeData.outputItem.modifiers) {
         data.stats.skipped++;
         return;
     }
-    
-    // 分析配方，添加策略标记
-    analyzeRecipe(recipeData, data);
-    
-    // 执行所有适用的策略
-    executeStrategies(data, recipe, recipeData);
+
+    recipeData.basinMaxMultiplier = calculateBasinMaxMultiplier(recipeData, data);
+    recipeData.basinMultiplier = Math.floor(recipeData.basinMaxMultiplier);
+
+    recipeData.base = calculateBulkBase(recipeData);
+    resolveBulkParams(recipeData);
+
+    tryBasinFermenting(data, recipe, recipeData);
+    tryBulkFermenting(data, recipe, recipeData);
 }
 
-// 批量转换
+/**
+ * 验证TFC堆叠限制是否已正确加载
+ * 首次加载时TFC堆叠修改可能尚未生效，getMaxStackSize可能返回错误的64
+ * @param {Object} data - 转换上下文
+ * @returns {boolean} true=堆叠正确，false=需要重载
+ */
+function verifyStackSizeLoaded(data) {
+    var expected = 32;
+    var actual = Item.of('minecraft:white_wool', 1).getMaxStackSize();
+
+    if (actual !== expected) {
+        var msg = Text.red('[生物柴油修复] 堆叠限制未正确加载（羊毛=' + actual + '，期望=' + expected + '），请执行 /reload 后重试，否则配方倍率可能不准确');
+        if (data.event.server) {
+            data.event.server.tell(msg);
+        }
+        console.error('[生物柴油修复] 堆叠限制验证失败：羊毛实际=' + actual + '，期望=' + expected + '，请执行 /reload 后重试，否则配方倍率可能不准确');
+        return false;
+    }
+
+    console.info('[生物柴油修复] 堆叠限制验证通过（羊毛=' + actual + '）');
+    return true;
+}
+
+/**
+ * 批量转换所有TFC密封大桶配方
+ * @param {Object} data - 转换上下文
+ */
 function convertAllRecipes(data) {
-    console.info('[生物柴油修复] 开始批量转换TFC密封大桶配方...');
-    
     data.event.forEachRecipe({ type: 'tfc:barrel_sealed' }, function(recipe) {
         convertSingleRecipe(data, recipe);
     });
-    
-    console.info('[生物柴油修复] 完成！Basin: ' + data.stats.basin + 
-                ', Bulk: ' + data.stats.bulk + 
-                ', 跳过: ' + data.stats.skipped);
 }
 
-// ============================================================================
-// 执行
-// 入口：遍历所有 tfc:barrel_sealed 配方，逐个转换为 Create 发酵配方
-// ============================================================================
 ServerEvents.recipes(function(event) {
     var data = createConverterData(event);
+    verifyStackSizeLoaded(data);
     convertAllRecipes(data);
 });
