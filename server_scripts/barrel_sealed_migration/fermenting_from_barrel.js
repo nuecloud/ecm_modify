@@ -174,15 +174,6 @@ function calculateBulkBase(recipeData) {
 }
 
 /**
- * 判断是否为mortar配方（输出过多，需限制倍率为6）
- * @param {Object} recipeData - 配方数据
- * @returns {boolean}
- */
-function isMortar(recipeData) {
-    return recipeData.recipeId === 'tfc:barrel/mortar';
-}
-
-/**
  * 判断是否为陈酿酒配方（物品×1，流体×3.6的特殊倍率）
  * @param {Object} recipeData - 配方数据
  * @returns {boolean}
@@ -197,7 +188,7 @@ function isAgedAlcohol(recipeData) {
 
 /**
  * 解析Bulk配方的倍率参数
- * 特殊配方（mortar/陈酿酒）整体覆盖所有倍率并跳过通用策略；
+ * 特殊配方（陈酿酒）整体覆盖所有倍率并跳过通用策略；
  * 通用配方依次应用流体增益（×2）和满池返还（向上取整到1000的倍数）
  * @param {Object} recipeData - 配方数据（会被修改）
  */
@@ -205,13 +196,6 @@ function resolveBulkParams(recipeData) {
     var base = recipeData.base;
     var hasInputFluid = recipeData.inputFluid && recipeData.inputFluid.amount > 0;
     var hasOutputFluid = recipeData.outputFluid && recipeData.outputFluid.amount > 0;
-
-    if (isMortar(recipeData)) {
-        recipeData.itemMultiplier = 6;
-        recipeData.fluidMultiplier = 6;
-        recipeData.fluidAddition = 0;
-        return;
-    }
 
     if (isAgedAlcohol(recipeData)) {
         recipeData.itemMultiplier = 1;
@@ -443,6 +427,11 @@ function convertSingleRecipe(data, recipe) {
     var recipeData = createRecipeData(json, data, recipe);
 
     if (recipeData.outputItem && recipeData.outputItem.modifiers) {
+        data.stats.skipped++;
+        return;
+    }
+
+    if (recipeData.recipeId === 'tfc:barrel/mortar') {
         data.stats.skipped++;
         return;
     }
