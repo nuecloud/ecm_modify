@@ -12,5 +12,9 @@ ServerEvents.recipes(event => {
   event.remove({ output: 'minecraft:copper_block' })
   event.remove({ output: 'minecraft:dried_kelp' })
   event.remove({ output: 'minecraft:honeycomb' })
+  event.remove({
+    mod: 'functionalstorage',
+    id: /.*_upgrade/
+  })
 
 })

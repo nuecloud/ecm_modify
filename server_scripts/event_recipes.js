@@ -12,6 +12,33 @@ ServerEvents.recipes(event => {
     }
   )
   event.shaped(
+    Item.of('create:empty_blaze_burner'),
+    [
+      ' A ',
+      'ABC',
+      ' C '
+    ],
+    {
+      A: '#c:sheets/red_steel',
+      B: '#c:gravels',
+      C: '#c:sheets/blue_steel'
+    }
+  )
+  event.shaped(
+    Item.of('create:blaze_burner'),
+    [
+      ' A ',
+      'ABA',
+      ' C '
+    ],
+    {
+      A: '#farmerstfc:magma_block',
+      B: 'tfc:blast_furnace',
+      C: 'create:empty_blaze_burner'
+    }
+  )
+
+  event.shaped(
     Item.of('drivebywire:wire'),
     [
       ' A ',
@@ -129,11 +156,6 @@ ServerEvents.recipes(event => {
     { input: 'minecraft:blast_furnace' },
     'minecraft:blast_furnace',
     'tfc:blast_furnace'
-  )
-  event.replaceInput(
-    { input: 'create:empty_blaze_burner' },
-    'create:empty_blaze_burner',
-    'createlowheated:basic_burner'
   )
 
 })
