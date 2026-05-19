@@ -77,12 +77,26 @@ function parseJsonField(json, fieldName) {
  * @returns {number|null} 最大堆叠数
  */
 function getMaxStackSize(itemData) {
+    if (itemData.children && itemData.children.length > 0) {
+        var minStack = 64;
+        for (var i = 0; i < itemData.children.length; i++) {
+            var child = itemData.children[i];
+            if (child.item || child.tag || (child.children && child.children.length > 0)) {
+                var childStack = getMaxStackSize(child);
+                if (childStack !== null && childStack < minStack) {
+                    minStack = childStack;
+                }
+            }
+        }
+        return minStack;
+    }
+
     var itemId = itemData.item || itemData.tag;
     if (!itemId) return null;
 
     try {
         if (itemData.tag) {
-            var tagItems = Ingredient.of('#' + itemData.tag).items;
+            var tagItems = Ingredient.of('#' + itemData.tag).stackArray;
             if (tagItems && tagItems.length > 0) {
                 var minStack = tagItems[0].getMaxStackSize();
                 for (var i = 1; i < tagItems.length; i++) {
@@ -112,13 +126,10 @@ function calculateBasinMaxMultiplier(recipeData, data) {
     var maxMultiplier = Infinity;
 
     if (recipeData.inputItem) {
-        var itemId = recipeData.inputItem.item || recipeData.inputItem.tag;
-        if (itemId) {
+        var maxStack = getMaxStackSize(recipeData.inputItem);
+        if (maxStack) {
             var count = recipeData.inputItem.count || 1;
-            var maxStack = getMaxStackSize(recipeData.inputItem);
-            if (maxStack) {
-                maxMultiplier = Math.min(maxMultiplier, maxStack / count);
-            }
+            maxMultiplier = Math.min(maxMultiplier, maxStack / count);
         }
     }
 

@@ -107,12 +107,14 @@ function calculateMaxMultiplier(recipeData, data) {
     var maxMultiplier = Infinity;
 
     if (recipeData.inputItem) {
-        if ((recipeData.inputItem.type === 'neoforge:compound' || recipeData.inputItem.type === 'tfc:and') && recipeData.inputItem.children) {
+        if (recipeData.inputItem.children && recipeData.inputItem.children.length > 0) {
             for (var i = 0; i < recipeData.inputItem.children.length; i++) {
                 var child = recipeData.inputItem.children[i];
-                var maxStack = getMaxStackSize(child);
-                if (maxStack) {
-                    maxMultiplier = Math.min(maxMultiplier, Math.floor(maxStack / (recipeData.inputItem.count || 1)));
+                if (child.item || child.tag || (child.children && child.children.length > 0)) {
+                    var maxStack = getMaxStackSize(child);
+                    if (maxStack) {
+                        maxMultiplier = Math.min(maxMultiplier, Math.floor(maxStack / (child.count || 1)));
+                    }
                 }
             }
         } else {
