@@ -1,0 +1,230 @@
+// ============================================================================
+// 测试脚本：测试通用堆叠限制获取函数
+// 支持: item/tag/tfc:and/neoforge:compound 类型
+// ============================================================================
+
+/**
+ * 通用获取物品最大堆叠数函数
+ * 支持: item/tag/tfc:and/neoforge:compound 类型
+ * 递归遍历所有子元素和标签中的物品，取最小值
+ * @param {Object} itemData - 物品数据
+ * @returns {number} 最大堆叠数（取最小值）
+ */
+function getUniversalMaxStack(itemData) {
+    if (!itemData) return 64;
+
+    // 优先级1: 直接物品
+    if (itemData.item) {
+        try {
+            var stackSize = Item.of(itemData.item, 1).getMaxStackSize();
+            console.info('[堆叠获取] 直接物品成功: ' + itemData.item + ' -> ' + stackSize);
+            return stackSize;
+        } catch (e) {
+            console.warn('[堆叠获取] 直接物品失败: ' + itemData.item + ', 错误: ' + e.message);
+            return 64;
+        }
+    }
+
+    // 优先级2: 物品标签
+    if (itemData.tag) {
+        try {
+            var tagIngredient = Ingredient.of('#' + itemData.tag);
+            console.info('[堆叠获取] 创建Ingredient: #' + itemData.tag);
+            
+            // 尝试多种方法获取标签物品
+            var tagItems = null;
+            
+            // 方法1: 尝试 .stackArray 属性（KubeJS常用）
+            if (tagIngredient.stackArray !== undefined) {
+                tagItems = tagIngredient.stackArray;
+                console.info('[堆叠获取] .stackArray 属性: ' + (tagItems && tagItems.length ? tagItems.length : '空'));
+            }
+            
+            // 方法2: 尝试 .itemIds 属性（返回 Java Set）
+            if (!tagItems && tagIngredient.itemIds !== undefined) {
+                var itemIdsSet = tagIngredient.itemIds;
+                console.info('[堆叠获取] .itemIds 属性: ' + (itemIdsSet && itemIdsSet.size ? itemIdsSet.size : '空'));
+                if (itemIdsSet && itemIdsSet.size > 0) {
+                    tagItems = [];
+                    var iterator = itemIdsSet.iterator();
+                    while (iterator.hasNext()) {
+                        tagItems.push(Item.of(iterator.next(), 1));
+                    }
+                    console.info('[堆叠获取] itemIds转换为ItemStack数组: ' + tagItems.length);
+                }
+            }
+            
+            // 方法3: 尝试 .stacks 属性（返回 Java Set）
+            if (!tagItems && tagIngredient.stacks !== undefined) {
+                var stacksSet = tagIngredient.stacks;
+                console.info('[堆叠获取] .stacks 属性: ' + (stacksSet && stacksSet.size ? stacksSet.size : '空'));
+                if (stacksSet && stacksSet.size > 0) {
+                    tagItems = [];
+                    var iterator = stacksSet.iterator();
+                    while (iterator.hasNext()) {
+                        tagItems.push(iterator.next());
+                    }
+                    console.info('[堆叠获取] stacks转换为数组: ' + tagItems.length);
+                }
+            }
+            
+            // 方法4: 尝试 getStackArray() 方法
+            if (!tagItems && typeof tagIngredient.getStackArray === 'function') {
+                tagItems = tagIngredient.getStackArray();
+                console.info('[堆叠获取] getStackArray() 方法: ' + (tagItems && tagItems.length ? tagItems.length : '空'));
+            }
+            
+            // 方法5: 尝试 getItemIds() 方法
+            if (!tagItems && typeof tagIngredient.getItemIds === 'function') {
+                var idsSet = tagIngredient.getItemIds();
+                console.info('[堆叠获取] getItemIds() 方法: ' + (idsSet && idsSet.size ? idsSet.size : '空'));
+                if (idsSet && idsSet.size > 0) {
+                    tagItems = [];
+                    var iterator = idsSet.iterator();
+                    while (iterator.hasNext()) {
+                        tagItems.push(Item.of(iterator.next(), 1));
+                    }
+                    console.info('[堆叠获取] getItemIds转换为ItemStack数组: ' + tagItems.length);
+                }
+            }
+            
+            // 方法6: 尝试 getStacks() 方法
+            if (!tagItems && typeof tagIngredient.getStacks === 'function') {
+                var sSet = tagIngredient.getStacks();
+                console.info('[堆叠获取] getStacks() 方法: ' + (sSet && sSet.size ? sSet.size : '空'));
+                if (sSet && sSet.size > 0) {
+                    tagItems = [];
+                    var iterator = sSet.iterator();
+                    while (iterator.hasNext()) {
+                        tagItems.push(iterator.next());
+                    }
+                    console.info('[堆叠获取] getStacks转换为数组: ' + tagItems.length);
+                }
+            }
+            
+            // 方法7: 尝试 .itemTypes 属性
+            if (!tagItems && tagIngredient.itemTypes !== undefined) {
+                var typesSet = tagIngredient.itemTypes;
+                console.info('[堆叠获取] .itemTypes 属性: ' + (typesSet && typesSet.size ? typesSet.size : '空'));
+                if (typesSet && typesSet.size > 0) {
+                    tagItems = [];
+                    var iterator = typesSet.iterator();
+                    while (iterator.hasNext()) {
+                        tagItems.push(Item.of(iterator.next(), 1));
+                    }
+                    console.info('[堆叠获取] itemTypes转换为ItemStack数组: ' + tagItems.length);
+                }
+            }
+            
+            // 输出调试信息
+            if (!tagItems) {
+                console.info('[堆叠获取] tagIngredient 属性列表: ' + Object.keys(tagIngredient).join(', '));
+                console.info('[堆叠获取] tagIngredient.empty: ' + tagIngredient.empty);
+                console.info('[堆叠获取] tagIngredient.tagKey: ' + tagIngredient.tagKey);
+            }
+            
+            if (tagItems && tagItems.length > 0) {
+                var minStack = tagItems[0].getMaxStackSize();
+                for (var i = 1; i < tagItems.length; i++) {
+                    var stackSize = tagItems[i].getMaxStackSize();
+                    if (stackSize < minStack) {
+                        minStack = stackSize;
+                    }
+                }
+                console.info('[堆叠获取] 标签成功: #' + itemData.tag + ' -> ' + minStack);
+                return minStack;
+            } else {
+                console.warn('[堆叠获取] 标签为空或获取失败: #' + itemData.tag);
+            }
+        } catch (e) {
+            console.warn('[堆叠获取] 处理标签失败: #' + itemData.tag + ', 错误: ' + e.message);
+        }
+        return 64;
+    }
+
+    // 优先级3: 复合类型（tfc:and / neoforge:compound）
+    if (itemData.children && itemData.children.length > 0) {
+        var minStack = 64;
+        for (var i = 0; i < itemData.children.length; i++) {
+            var child = itemData.children[i];
+            // 只处理有item/tag/children的子元素，跳过条件类型如 tfc:not_rotten
+            if (child.item || child.tag || (child.children && child.children.length > 0)) {
+                var childStack = getUniversalMaxStack(child);
+                minStack = Math.min(minStack, childStack);
+            }
+        }
+        console.info('[堆叠获取] 复合类型: ' + (itemData.type || 'unknown') + ' -> ' + minStack);
+        return minStack;
+    }
+
+    // 其他未知类型，返回默认值
+    return 64;
+}
+
+ServerEvents.recipes(function(event) {
+    // ==================== 测试1: neoforge:compound 类型 ====================
+    var compoundInput = {
+        type: 'neoforge:compound',
+        children: [
+            { tag: 'tfc:foods/preserves' },
+            { tag: 'tfc:foods/sealed_preserves' }
+        ],
+        count: 1
+    };
+
+    var compoundMaxStack = getUniversalMaxStack(compoundInput);
+    var compoundMultiplier = Math.min(
+        Math.floor(compoundMaxStack / (compoundInput.count || 1)),
+        Math.floor(1000 / 100)  // 流体限制
+    );
+
+    console.info('[测试配方] neoforge:compound 堆叠限制: ' + compoundMaxStack + ', 倍率: ' + compoundMultiplier);
+
+    event.recipes.create.mixing(
+        [Item.of('tfc:empty_jar', compoundMultiplier)],
+        [
+            Ingredient.of(compoundInput, compoundMultiplier),
+            Fluid.of('minecraft:water', 100 * compoundMultiplier)
+        ],
+        100
+    ).id('kubejs:test/compound_preserves');
+
+    // ==================== 测试2: tfc:and 类型 ====================
+    var andInput = {
+        type: 'tfc:and',
+        children: [
+            { item: 'tfc:food/barley_flour' },
+            { type: 'tfc:not_rotten' }  // 条件类型，不参与堆叠计算
+        ],
+        count: 1
+    };
+
+    var andMaxStack = getUniversalMaxStack(andInput);
+    var andMultiplier = Math.min(
+        Math.floor(andMaxStack / (andInput.count || 1)),
+        Math.floor(1000 / 500)  // 流体限制
+    );
+
+    console.info('[测试配方] tfc:and 堆叠限制: ' + andMaxStack + ', 倍率: ' + andMultiplier);
+
+    event.recipes.create.mixing(
+        [Fluid.of('tfc:beer', 500 * andMultiplier)],
+        [
+            Ingredient.of(andInput, andMultiplier),
+            Fluid.of('minecraft:water', 500 * andMultiplier)
+        ],
+        100
+    ).id('kubejs:test/tfc_and_barley');
+
+    // ==================== 测试3: 普通物品 ====================
+    var simpleItem = { item: 'tfc:powder/saltpeter', count: 1 };
+    var simpleMaxStack = getUniversalMaxStack(simpleItem);
+    console.info('[测试配方] 普通物品堆叠限制: ' + simpleMaxStack);
+
+    // ==================== 测试4: 物品标签 ====================
+    var tagItem = { tag: 'tfc:colored_wool', count: 1 };
+    var tagMaxStack = getUniversalMaxStack(tagItem);
+    console.info('[测试配方] 标签堆叠限制: ' + tagMaxStack);
+
+    console.info('[测试配方] 所有测试配方已创建');
+});
