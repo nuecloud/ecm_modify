@@ -24,19 +24,6 @@ ServerEvents.recipes(event => {
       C: '#c:sheets/blue_steel'
     }
   )
-  event.shaped(
-    Item.of('create:blaze_burner'),
-    [
-      ' A ',
-      'ABA',
-      ' C '
-    ],
-    {
-      A: '#farmerstfc:magma_block',
-      B: 'tfc:blast_furnace',
-      C: 'create:empty_blaze_burner'
-    }
-  )
 
   event.shaped(
     Item.of('drivebywire:wire'),
@@ -150,12 +137,5 @@ ServerEvents.recipes(event => {
     'minecraft:iron_block',
     1500
   ).fluidOutput(Fluid.of('tfc:metal/cast_iron', 900))
-
-
-  event.replaceInput(
-    { input: 'minecraft:blast_furnace' },
-    'minecraft:blast_furnace',
-    'tfc:blast_furnace'
-  )
 
 })

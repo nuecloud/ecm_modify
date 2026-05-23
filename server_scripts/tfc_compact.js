@@ -44,9 +44,25 @@ ServerEvents.recipes(event => {
   ).fluidOutput(Fluid.of('tfc:metal/cast_iron', 900))
 
 
+  // 将 mod 配方中的原版高炉替换为 TFC firebox（造价更低）
   event.replaceInput(
     { input: 'minecraft:blast_furnace' },
     'minecraft:blast_furnace',
-    'tfc:blast_furnace'
+    'tfc:firebox'
+  )
+
+  // create blaze_burner - 使用 tfc:firebox 替代昂贵的 tfc:blast_furnace
+  event.shaped(
+    Item.of('create:blaze_burner'),
+    [
+      ' A ',
+      'ABA',
+      ' C '
+    ],
+    {
+      A: '#farmerstfc:magma_block',
+      B: 'tfc:firebox',
+      C: 'create:empty_blaze_burner'
+    }
   )
 })
